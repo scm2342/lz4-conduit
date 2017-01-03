@@ -1,0 +1,31 @@
+name:                lz4-conduit
+version:             0.1
+synopsis:            LZ4 compression for conduits
+description:
+  lz4 compression for conduits, using https://github.com/lz4/lz4
+author:              Sven Mattsen
+maintainer:          sven@sven.cc
+category:            Codec, Compression, Conduit
+build-type:          Simple
+cabal-version:       >=1.10
+
+extra-source-files:
+  c/lz4.c, c/lz4.h
+
+library
+  hs-source-dirs:  .
+  exposed-modules: Data.Conduit.LZ4
+  build-depends:
+    base >= 4.9 && < 5, conduit >= 1.2 && < 1.3, bytestring >=0.10 && <0.11, resourcet >= 1.1 && <1.2, mtl >= 2.2 && <2.3
+
+  c-sources:       c/lz4.c, c/lz4.h
+  include-dirs:    c
+
+  ghc-options:     -O -Wall
+  default-language: Haskell2010
+
+executable Main
+  main-is: Main.hs
+  build-depends:
+    base >= 4.9 && < 5, conduit >= 1.2 && < 1.3, bytestring >=0.10 && <0.11, resourcet >= 1.1 && <1.2, mtl >= 2.2 && <2.3, conduit-extra >= 1.1 && <1.2, lz4-conduit
+  default-language:    Haskell2010
