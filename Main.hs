@@ -8,5 +8,6 @@ import Data.Conduit.List
 
 main :: IO ()
 main = do
-  runResourceT $ sourceFile "foo" $$ compress =$= sinkFile "bar"
+  runResourceT $ sourceFile "foo" $$ compress =$= sinkFile "foobar"
+  runResourceT $ sourceFile "foobar" $$ decompress =$= sinkFile "bar"
   {-runResourceT $ sourceFile "foo" $$ Data.Conduit.List.mapM_ (liftIO . Data.ByteString.putStrLn) =$= compress =$= compress =$= sinkFile "bar"-}
