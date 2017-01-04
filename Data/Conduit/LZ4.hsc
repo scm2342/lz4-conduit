@@ -1,5 +1,5 @@
-{-# LANGUAGE CPP, EmptyDataDecls, ScopedTypeVariables #-}
-module Data.Conduit.LZ4 where
+{-# LANGUAGE CPP, EmptyDataDecls #-}
+module Data.Conduit.LZ4(compress, decompress) where
 
 import Control.Monad
 import Control.Monad.Trans
@@ -21,7 +21,6 @@ import Data.Binary.Put
 #include <lz4.h>
 
 data C_LZ4Stream
-data C_LZ4Stream_Decode
 
 foreign import ccall unsafe "lz4.h LZ4_createStream"
   c_createStream :: IO (Ptr C_LZ4Stream)
@@ -41,8 +40,8 @@ foreign import ccall unsafe "lz4.h LZ4_saveDict"
 foreign import ccall unsafe "lz4.h LZ4_decompress_safe_usingDict"
   c_decompressSafeUsingDict :: CString -> Ptr Word8 -> CInt -> CInt -> Ptr Word8 -> CInt -> IO CInt
 
-compress :: MonadResource m => Conduit BS.ByteString m BS.ByteString
-compress = do
+compress :: MonadResource m => Maybe Int -> Conduit BS.ByteString m BS.ByteString
+compress acceleration = do
   bracketP
     ((,) <$> c_createStream <*> (mallocBytes (64 * 1024) :: IO CString))
     (\(stream, buf) -> c_freeStream stream >> free buf)
@@ -55,7 +54,7 @@ compress = do
                   let cintlen = fromIntegral len
                   outlen <- c_compressBound cintlen
                   res <- I.createAndTrim (fromIntegral outlen + 8) $ \content -> do
-                    size <- c_compressFastContinue stream cstring (content `plusPtr` 8) cintlen outlen 0
+                    size <- c_compressFastContinue stream cstring (content `plusPtr` 8) cintlen outlen $ maybe 0 fromIntegral acceleration
                     _ <- c_saveDict stream dictBuf (64 * 1024)
                     writeWords (word32be $ fromIntegral len) content
                     writeWords (word32be $ fromIntegral size) (content `plusPtr` 4)
@@ -83,9 +82,9 @@ decompress = do
             case val of
               Just val' -> work dictSize (buf <> BSL.fromStrict val')
               Nothing -> return ()
-          work (dictSize :: CInt) bs = case runGetOrFail getFrame bs of
+          work dictSize bs = case runGetOrFail getFrame bs of
                 Left _ -> go dictSize bs
-                Right (buf', _, (decompressedSize, compressedSize, frame :: BS.ByteString)) -> do
+                Right (buf', _, (decompressedSize, compressedSize, frame)) -> do
                   {-liftIO $ putStrLn $ "DECOMPRESSION: decompressed size=" ++ show decompressedSize ++ ", compressed size=" ++ show compressedSize-}
                   (res, size) <- liftIO $ U.unsafeUseAsCString frame $ \cstring -> do
                     I.createAndTrim' (fromIntegral decompressedSize) $ \content -> do
