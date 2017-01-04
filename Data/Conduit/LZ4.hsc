@@ -81,7 +81,8 @@ decompress = do
             val <- await
             case val of
               Just val' -> work dictSize (buf <> BSL.fromStrict val')
-              Nothing -> return ()
+              Nothing | BSL.null buf -> return ()
+              Nothing -> fail "decompress buff not empty but stream empty!"
           work dictSize bs = case runGetOrFail getFrame bs of
                 Left _ -> go dictSize bs
                 Right (buf', _, (decompressedSize, compressedSize, frame)) -> do
