@@ -4,6 +4,8 @@ module Data.Conduit.LZ4 where
 import Control.Monad
 import Control.Monad.Trans
 import Control.Monad.Trans.Resource
+import Control.Applicative
+import Control.Exception
 import Data.Conduit
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
@@ -12,7 +14,7 @@ import qualified Data.ByteString.Internal as I
 import Foreign.C
 import Foreign.Ptr
 import Foreign.Storable
-import Data.IORef
+import Foreign.Marshal
 import Data.Word
 import Data.Monoid
 import Data.Binary.Get
@@ -44,6 +46,9 @@ foreign import ccall unsafe "lz4.h LZ4_compress_fast_continue"
   int LZ4_compress_fast_continue (LZ4_stream_t* streamPtr, const char* src, char* dst, int srcSize, int maxDstSize, int acceleration);-}
   c_compressFastContinue :: Ptr C_LZ4Stream -> CString -> Ptr Word8 -> CInt -> CInt -> CInt -> IO CInt
 
+foreign import ccall unsafe "lz4.h LZ4_saveDict"
+  c_saveDict :: Ptr C_LZ4Stream -> CString -> CInt -> IO CInt
+
 foreign import ccall unsafe "lz4.h LZ4_createStreamDecode"
   c_createStreamDecode :: IO (Ptr C_LZ4Stream_Decode)
 foreign import ccall unsafe "lz4.h LZ4_freeStreamDecode"
@@ -53,11 +58,10 @@ foreign import ccall unsafe "lz4.h LZ4_decompress_safe_continue"
 
 compress :: MonadResource m => Conduit BS.ByteString m BS.ByteString
 compress = do
-  ioRef <- liftIO $ newIORef BS.empty
   bracketP
-    c_createStream
-    c_freeStream
-    (\stream -> do
+    ((,) <$> c_createStream <*> (mallocBytes (64 * 1024) :: IO CString))
+    (\(stream, buf) -> c_freeStream stream >> free buf)
+    (\(stream, dictBuf) -> do
       let go = do
             val <- await
             case val of
@@ -67,13 +71,13 @@ compress = do
                   outlen <- c_compressBound cintlen
                   res <- I.createAndTrim (fromIntegral outlen + 8) $ \content -> do
                     size <- c_compressFastContinue stream cstring (content `plusPtr` 8) cintlen outlen 0
+                    _ <- c_saveDict stream dictBuf (64 * 1024)
                     writeWords (word32be $ fromIntegral len) content
                     writeWords (word32be $ fromIntegral size) (content `plusPtr` 4)
                     {-poke (castPtr content) (fromIntegral len :: Word32) -- 4 bytes = decompressed size-}
                     {-poke (castPtr $ content `plusPtr` 4) (fromIntegral size :: Word32) -- 4 bytes = compressed size-}
                     putStrLn $ "COMPRESSION: decompressed size=" ++ show len ++ ", compressed size=" ++ show size
                     return $ fromIntegral size + 8
-                  modifyIORef ioRef $ const val' -- use modify to enforce read for now, want to keep old bs alive for unsafeuse
                   return res
                 yield res
                 go
@@ -87,7 +91,6 @@ writeWords ws cstring = forM_ (zip [0..] ws) $ \(i, w) -> poke (cstring `plusPtr
 
 decompress :: MonadResource m => Conduit BS.ByteString m BS.ByteString
 decompress = do
-  ioRef <- liftIO $ newIORef BS.empty
   bracketP
     c_createStreamDecode
     c_freeStreamDecode
@@ -104,7 +107,6 @@ decompress = do
                   res <- liftIO $ U.unsafeUseAsCString frame $ \cstring -> do
                     res <- I.createAndTrim (fromIntegral decompressedSize) $ \content -> do
                       fromIntegral `fmap` c_decompressSafeContinue stream cstring content (fromIntegral compressedSize) (fromIntegral decompressedSize)
-                    modifyIORef ioRef $ const frame -- use modify to enforce read for now, want to keep old bs alive for unsafeuse
                     return res
                   yield res
                   work buf'
