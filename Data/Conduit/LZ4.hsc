@@ -66,11 +66,11 @@ compress = do
                 go
               Nothing -> return ()
       go)
-
-word32be :: Word32 -> [Word8]
-word32be w = runGet (replicateM 4 getWord8) (runPut (putWord32be w))
-writeWords :: [Word8] -> Ptr Word8 -> IO ()
-writeWords ws cstring = forM_ (zip [0..] ws) $ \(i, w) -> poke (cstring `plusPtr` i) w
+  where
+  word32be :: Word32 -> [Word8]
+  word32be w = runGet (replicateM 4 getWord8) (runPut (putWord32be w))
+  writeWords :: [Word8] -> Ptr Word8 -> IO ()
+  writeWords ws cstring = forM_ (zip [0..] ws) $ \(i, w) -> poke (cstring `plusPtr` i) w
 
 decompress :: MonadResource m => Conduit BS.ByteString m BS.ByteString
 decompress = do
