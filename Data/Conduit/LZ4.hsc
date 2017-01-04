@@ -4,8 +4,6 @@ module Data.Conduit.LZ4 where
 import Control.Monad
 import Control.Monad.Trans
 import Control.Monad.Trans.Resource
-import Control.Applicative
-import Control.Exception
 import Data.Conduit
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
@@ -26,35 +24,22 @@ data C_LZ4Stream
 data C_LZ4Stream_Decode
 
 foreign import ccall unsafe "lz4.h LZ4_createStream"
---LZ4_createStream() will allocate and initialize an `LZ4_stream_t` structure.
   c_createStream :: IO (Ptr C_LZ4Stream)
 
 foreign import ccall unsafe "lz4.h LZ4_freeStream"
---LZ4_freeStream() releases its memory.
   c_freeStream :: Ptr C_LZ4Stream -> IO ()
 
 foreign import ccall unsafe "lz4.h LZ4_compressBound"
---Provides the maximum size that LZ4 compression may output in a "worst case" scenario (input data not compressible)
   c_compressBound :: CInt -> IO CInt
 
 foreign import ccall unsafe "lz4.h LZ4_compress_fast_continue"
-{-Compress buffer content 'src', using data from previously compressed blocks as dictionary to improve compression ratio.
-  Important : Previous data blocks are assumed to still be present and unmodified !
-  'dst' buffer must be already allocated.
-  If maxDstSize >= LZ4_compressBound(srcSize), compression is guaranteed to succeed, and runs faster.
-  If not, and if compressed data cannot fit into 'dst' buffer size, compression stops, and function returns a zero.
-  int LZ4_compress_fast_continue (LZ4_stream_t* streamPtr, const char* src, char* dst, int srcSize, int maxDstSize, int acceleration);-}
   c_compressFastContinue :: Ptr C_LZ4Stream -> CString -> Ptr Word8 -> CInt -> CInt -> CInt -> IO CInt
 
 foreign import ccall unsafe "lz4.h LZ4_saveDict"
   c_saveDict :: Ptr C_LZ4Stream -> CString -> CInt -> IO CInt
 
-foreign import ccall unsafe "lz4.h LZ4_createStreamDecode"
-  c_createStreamDecode :: IO (Ptr C_LZ4Stream_Decode)
-foreign import ccall unsafe "lz4.h LZ4_freeStreamDecode"
-  c_freeStreamDecode :: Ptr C_LZ4Stream_Decode -> IO ()
-foreign import ccall unsafe "lz4.h LZ4_decompress_safe_continue"
-  c_decompressSafeContinue :: Ptr C_LZ4Stream_Decode -> CString -> Ptr Word8 -> CInt -> CInt -> IO CInt
+foreign import ccall unsafe "lz4.h LZ4_decompress_safe_usingDict"
+  c_decompressSafeUsingDict :: CString -> Ptr Word8 -> CInt -> CInt -> Ptr Word8 -> CInt -> IO CInt
 
 compress :: MonadResource m => Conduit BS.ByteString m BS.ByteString
 compress = do
@@ -74,9 +59,7 @@ compress = do
                     _ <- c_saveDict stream dictBuf (64 * 1024)
                     writeWords (word32be $ fromIntegral len) content
                     writeWords (word32be $ fromIntegral size) (content `plusPtr` 4)
-                    {-poke (castPtr content) (fromIntegral len :: Word32) -- 4 bytes = decompressed size-}
-                    {-poke (castPtr $ content `plusPtr` 4) (fromIntegral size :: Word32) -- 4 bytes = compressed size-}
-                    putStrLn $ "COMPRESSION: decompressed size=" ++ show len ++ ", compressed size=" ++ show size
+                    {-putStrLn $ "COMPRESSION: decompressed size=" ++ show len ++ ", compressed size=" ++ show size-}
                     return $ fromIntegral size + 8
                   return res
                 yield res
@@ -92,25 +75,27 @@ writeWords ws cstring = forM_ (zip [0..] ws) $ \(i, w) -> poke (cstring `plusPtr
 decompress :: MonadResource m => Conduit BS.ByteString m BS.ByteString
 decompress = do
   bracketP
-    c_createStreamDecode
-    c_freeStreamDecode
-    (\stream -> do
-      let go buf = do
+    (mallocBytes (64 * 1024) :: IO (Ptr Word8))
+    free
+    (\dictBuf -> do
+      let go dictSize buf = do
             val <- await
             case val of
-              Just val' -> work (buf <> BSL.fromStrict val')
+              Just val' -> work dictSize (buf <> BSL.fromStrict val')
               Nothing -> return ()
-          work bs = case runGetOrFail getFrame bs of
-                Left _ -> go bs
+          work (dictSize :: CInt) bs = case runGetOrFail getFrame bs of
+                Left _ -> go dictSize bs
                 Right (buf', _, (decompressedSize, compressedSize, frame :: BS.ByteString)) -> do
-                  liftIO $ putStrLn $ "DECOMPRESSION: decompressed size=" ++ show decompressedSize ++ ", compressed size=" ++ show compressedSize
-                  res <- liftIO $ U.unsafeUseAsCString frame $ \cstring -> do
-                    res <- I.createAndTrim (fromIntegral decompressedSize) $ \content -> do
-                      fromIntegral `fmap` c_decompressSafeContinue stream cstring content (fromIntegral compressedSize) (fromIntegral decompressedSize)
-                    return res
+                  {-liftIO $ putStrLn $ "DECOMPRESSION: decompressed size=" ++ show decompressedSize ++ ", compressed size=" ++ show compressedSize-}
+                  (res, size) <- liftIO $ U.unsafeUseAsCString frame $ \cstring -> do
+                    I.createAndTrim' (fromIntegral decompressedSize) $ \content -> do
+                      size <- c_decompressSafeUsingDict cstring content (fromIntegral compressedSize) (fromIntegral decompressedSize) dictBuf dictSize
+                      let sizeInt = fromIntegral size
+                      copyBytes dictBuf content $ min sizeInt $ 64 * 1024
+                      return (0, sizeInt, size)
                   yield res
-                  work buf'
-      go BSL.empty)
+                  work size buf'
+      go 0 BSL.empty)
   where
   getFrame = do
     decompressedSize <- getWord32be
