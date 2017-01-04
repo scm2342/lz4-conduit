@@ -5,9 +5,10 @@ import Control.Monad.Trans.Resource
 import Control.Monad.Trans
 import Data.ByteString
 import Data.Conduit.List
+import System.Environment
 
 main :: IO ()
 main = do
-  runResourceT $ sourceFile "foo" $$ compress =$= sinkFile "foobar"
-  runResourceT $ sourceFile "foobar" $$ decompress =$= sinkFile "bar"
-  {-runResourceT $ sourceFile "foo" $$ Data.Conduit.List.mapM_ (liftIO . Data.ByteString.putStrLn) =$= compress =$= compress =$= sinkFile "bar"-}
+  [fin, ftemp, fout] <- getArgs
+  runResourceT $ sourceFile fin $$ compress =$= sinkFile ftemp
+  runResourceT $ sourceFile ftemp $$ decompress =$= sinkFile fout
