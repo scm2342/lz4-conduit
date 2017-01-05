@@ -31,3 +31,13 @@ executable LZ4
     lz4-conduit, base >= 4.9 && < 5, conduit >= 1.2 && < 1.3, conduit-extra >= 1.1 && <1.2, resourcet >= 1.1 && <1.2
   ghc-options:     -O -Wall
   default-language: Haskell2010
+
+test-suite props
+  hs-source-dirs:  Main
+  main-is:         Test.hs
+  build-depends:
+    lz4-conduit, base >= 4.9 && < 5, conduit >= 1.2 && < 1.3, resourcet >= 1.1 && <1.2, QuickCheck >= 2.8 && <2.9, bytestring >= 0.10 && <0.11, bytestring-arbitrary >= 0.1 && <0.2
+  ghc-options:     -O
+  default-language: Haskell2010
+  type:            exitcode-stdio-1.0
+
