@@ -40,7 +40,11 @@ foreign import ccall unsafe "lz4.h LZ4_saveDict"
 foreign import ccall unsafe "lz4.h LZ4_decompress_safe_usingDict"
   c_decompressSafeUsingDict :: CString -> Ptr Word8 -> CInt -> CInt -> Ptr Word8 -> CInt -> IO CInt
 
-compress :: MonadResource m => Maybe Int -> Conduit BS.ByteString m BS.ByteString
+-- | Compress a Data.ByteString stream using lz4 stream compression
+compress
+  :: MonadResource m
+  => Maybe Int -- ^ Acceleration value. The higher the faster and less effective!
+  -> Conduit BS.ByteString m BS.ByteString
 compress acceleration = do
   bracketP
     ((,) <$> c_createStream <*> (mallocBytes (64 * 1024) :: IO CString))
@@ -71,7 +75,9 @@ compress acceleration = do
   writeWords :: [Word8] -> Ptr Word8 -> IO ()
   writeWords ws cstring = forM_ (zip [0..] ws) $ \(i, w) -> poke (cstring `plusPtr` i) w
 
-decompress :: MonadResource m => Conduit BS.ByteString m BS.ByteString
+decompress
+  :: MonadResource m
+  => Conduit BS.ByteString m BS.ByteString
 decompress = do
   bracketP
     (mallocBytes (64 * 1024) :: IO (Ptr Word8))
