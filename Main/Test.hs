@@ -11,9 +11,12 @@ import Data.Monoid
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
 
-prop_lz4_identity (NonNegative a) (Positive n) (Positive m) (ABS bs) = ioProperty $ do
+prop_lz4_identity (NonNegative a) (Positive n') (Positive m') (ABS10M bs) = ioProperty $ do
   res <- runResourceT $ yield bs $$ rechunk n =$= compress (Just a) =$= rechunk m =$= decompress =$= CL.consume
   return (bs == BS.concat res)
+  where
+  n = max 64 n'
+  m = max 64 m'
 
 prop_rechunk_identity (Positive n) (ABS bs) = runConduitPure $ do
   res <- yield bs $$ rechunk n =$= CL.consume
@@ -37,5 +40,5 @@ return []
 
 main :: IO ()
 main = do
-  res <- $quickCheckAll
+  res <- $forAllProperties (quickCheckWithResult (stdArgs {maxSuccess = 10000}))
   when (not res) exitFailure
