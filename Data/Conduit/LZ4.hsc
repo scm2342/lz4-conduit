@@ -40,7 +40,7 @@ foreign import ccall unsafe "lz4.h LZ4_saveDict"
 foreign import ccall unsafe "lz4.h LZ4_decompress_safe_usingDict"
   c_decompressSafeUsingDict :: CString -> Ptr Word8 -> CInt -> CInt -> Ptr Word8 -> CInt -> IO CInt
 
--- | Compress a Data.ByteString stream using lz4 stream compression
+-- | Compress a Data.ByteString stream (< 2GB / element) using lz4 stream compression
 compress
   :: MonadResource m
   => Maybe Int -- ^ Acceleration value. The higher the faster and less effective!
